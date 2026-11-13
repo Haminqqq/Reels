@@ -17,7 +17,12 @@ python ig_report.py haminqqq --reel https://www.instagram.com/reel/DfZe4PRyT7l/
 python ig_report.py haminqqq --reel DfZe4PRyT7l --compare 帳號A 帳號B
 ```
 
-跑完會產生 `data/report.md`，把內容整份貼回對話即可。
+跑完會產生兩個檔案：
+
+- `data/highlights.md`：給你看的。只列表現好的貼文、時段和內容類型，不顯示你的追蹤數，也不列表現差的貼文。
+- `data/for_claude.json`：完整數據。不用打開，直接上傳到對話給 Claude 即可。
+
+每跑一次還會在 `data/history.jsonl` 累積一筆紀錄，用來長期追蹤，同樣不用打開。
 
 ## 被 IG 擋下來時
 

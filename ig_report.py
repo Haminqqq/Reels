@@ -6,7 +6,8 @@
     python ig_report.py haminqqq --reel DfZe4PRyT7l --compare 帳號A 帳號B
     python ig_report.py haminqqq --login haminqqq      # 匿名被擋時才用
 
-輸出：data/report.md（貼給 Claude 看的）與 data/report.json（原始資料）。
+輸出：data/highlights.md（給你看的亮點，不含追蹤數）、
+      data/for_claude.json（完整數據，直接上傳給 Claude，不用打開）。
 """
 import argparse
 import json
@@ -124,6 +125,30 @@ def fmt(v):
     return "—" if v is None else f"{v:,}" if isinstance(v, (int, float)) else str(v)
 
 
+def render_own(acc):
+    """自己的帳號：只列表現好的部分，不顯示追蹤數，也不列表現差的貼文。"""
+    p, s = acc["profile"], acc["summary"]
+    out = [f"## @{p['username']} 的亮點", ""]
+    rated = [(k["avg_likes"] or 0) + (k["avg_comments"] or 0) for k in s["kinds"].values()]
+    if rated and max(rated) > 0:
+        best = max(s["kinds"], key=lambda k: (s["kinds"][k]["avg_likes"] or 0) + (s["kinds"][k]["avg_comments"] or 0))
+        out += [f"- 互動最好的內容類型：**{KIND_LABEL[best]}**"]
+    if s["top_posts"]:
+        out += ["", "**表現最好的貼文**", "", "| 日期 | 類型 | 讚 | 留言 | 觀看 | 文案開頭 | 連結 |",
+                "|---|---|---|---|---|---|---|"]
+        for r in s["top_posts"]:
+            out.append(f"| {r['date']} | {KIND_LABEL[r['kind']]} | {fmt(r['likes'])} | {fmt(r['comments'])} | "
+                       f"{fmt(r['views'])} | {short(r['caption'], 40).replace('|', '/')} | {r['url']} |")
+    if s["best_slots"]:
+        out += ["", "**互動最好的發文時段（台灣時間）**", ""]
+        out += [f"- 週{WEEKDAYS[b['weekday']]} {b['hour']:02d}:00" for b in s["best_slots"][:3]]
+    best_tags = Counter(t.lower() for r in s["top_posts"] for t in r["hashtags"]).most_common(8)
+    if best_tags:
+        out += ["", "**高互動貼文用的 hashtag**：" + "、".join(f"#{t}" for t, _ in best_tags)]
+    out.append("")
+    return out
+
+
 def render_account(acc):
     p, s = acc["profile"], acc["summary"]
     out = [f"## @{p['username']}", ""]
@@ -160,9 +185,9 @@ def render_account(acc):
 
 
 def render_report(data):
-    out = ["# Instagram 分析報告", "", f"產生時間：{data['generated_at']}", ""]
-    for acc in data["accounts"]:
-        out += render_account(acc)
+    out = ["# Instagram 亮點報告", "", f"產生時間：{data['generated_at']}", ""]
+    for i, acc in enumerate(data["accounts"]):
+        out += render_own(acc) if i == 0 and data.get("own_first", True) else render_account(acc)
     for r in data.get("reels", []):
         out += [f"## 參考影片 {r['url']}", "",
                 f"- 作者：@{r['owner']}（追蹤者 {fmt(r.get('owner_followers'))}）",
@@ -209,9 +234,10 @@ def main():
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    data = {"generated_at": time.strftime("%Y-%m-%d %H:%M"), "accounts": [], "reels": [], "errors": []}
+    data = {"generated_at": time.strftime("%Y-%m-%d %H:%M"), "own_first": True,
+            "accounts": [], "reels": [], "errors": []}
 
-    for name in [args.username, *args.compare]:
+    for idx, name in enumerate([args.username, *args.compare]):
         print(f"抓取 @{name} …")
         try:
             prof = instaloader.Profile.from_username(L.context, name.lstrip("@"))
@@ -235,6 +261,8 @@ def main():
             data["accounts"].append({"profile": profile, "posts": posts,
                                      "summary": summarize(profile, posts)})
         except Exception as e:
+            if idx == 0:
+                data["own_first"] = False
             data["errors"].append(f"@{name}：{type(e).__name__}: {e}")
             print(f"  失敗：{e}")
         time.sleep(3)
@@ -261,9 +289,17 @@ def main():
             data["errors"].append(f"影片 {code}：{type(e).__name__}: {e}")
             print(f"  失敗：{e}")
 
-    (out_dir / "report.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "report.md").write_text(render_report(data), encoding="utf-8")
-    print(f"\n完成：{out_dir / 'report.md'}")
+    # 完整數據（含追蹤數）只寫進 for_claude.json，並累積在 history.jsonl 供長期追蹤；不用打開看
+    (out_dir / "for_claude.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if data["own_first"] and data["accounts"]:
+        own = data["accounts"][0]
+        snap = {"at": data["generated_at"], "profile": own["profile"], "kinds": own["summary"]["kinds"],
+                "posts_per_week": own["summary"]["posts_per_week"]}
+        with (out_dir / "history.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(snap, ensure_ascii=False) + "\n")
+    (out_dir / "highlights.md").write_text(render_report(data), encoding="utf-8")
+    print(f"\n完成。給你看的亮點：{out_dir / 'highlights.md'}")
+    print(f"給 Claude 的完整數據（不用打開）：{out_dir / 'for_claude.json'}")
     if data["errors"]:
         print("有項目抓取失敗，詳見報告最後一段。若是被要求登入，請加上 --login 你的帳號 再跑一次。")
 
