@@ -63,6 +63,7 @@ python analyze_style.py 參考影片.mp4
 會在 `data/style_參考影片/` 產生：
 
 - `sheet.jpg`：每個鏡頭一張縮圖，標上編號和秒數
+- `shot_01.jpg`、`shot_02.jpg`…：每個鏡頭各自的截圖（總覽圖沒做出來時，上傳這些也可以）
 - `style.json`：每個鏡頭的起訖時間
 - `plan.json`：剪輯計畫範本
 
